@@ -3,10 +3,11 @@
 - Language: Swift
 - Package Manager: Swift Package Manager
 - Minimum targets: iOS 27 and macOS 27 (single user, latest OS only; Liquid Glass APIs need no availability checks)
-- Keep dependencies rare and intentional
+- Keep dependencies rare and intentional. The one dependency is Feedback (`https://github.com/smirea/feedback-engine`, branch `master`), shake-to-feedback on iOS; on macOS it is an empty module and `Sources/App/FeedbackTags.swift` supplies no-op tags.
 
 # Development
 
+- When you build or change a SwiftUI screen, row, card, or chart, follow Feedback's accessibility skill. Read the latest with `gh api repos/smirea/feedback-engine/contents/skills/feedback-accessibility/SKILL.md -H 'Accept: application/vnd.github.raw'`. Tag list rows with custom content through `.feedbackCell(self)` so the cell's padding selects the row. Trigger the editor on a simulator with `xcrun simctl notify_post <udid> com.apple.UIKit.SimulatorShake`, then press the button at (360, 92) by coordinates: a label press reports it covered and taps the screen center instead.
 - The 222 token comes from env-manager project `222`. Run `env-manager down` before the first build; the Validate Secrets phase fails without it (CI skips the check). Never add sign-in UI.
 - Run `./scripts/run` to build, install, and launch the app, with automatic rebuild and relaunch after saving. Requires Bun and Xcode. Stop with Ctrl-C, or use `--no-watch` for one launch.
 - Use `./scripts/run --targets` to list devices and simulators; `*` marks the effective default. Select with `-t simulator`, `-t mac`, or `-t "iPhone 17"` (also accepts an identifier). It opens Device Hub on Xcode 27 or Simulator.app on earlier Xcode versions.

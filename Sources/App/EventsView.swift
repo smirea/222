@@ -1,3 +1,4 @@
+import Feedback
 import MapKit
 import SwiftUI
 
@@ -41,6 +42,7 @@ struct EventsView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
+        .feedback(self)
     }
 
     @ViewBuilder
@@ -67,6 +69,7 @@ struct EventRow: View {
                 EventAction(event: event, compact: true)
             }
         }
+        .feedbackCell(self)
         .swipeActions {
             if event.status == .invited {
                 Button("Pass") { Task { await store.pass(event) } }.tint(.gray)
@@ -90,6 +93,11 @@ struct EventAction: View {
     var compact = false
 
     var body: some View {
+        SwiftUI.Group { content }.feedback(self)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if store.busy.contains(event.id) {
             ProgressView().controlSize(.small)
         } else if store.requestable.contains(where: { $0.id == event.id }) && event.rsvp == nil {
@@ -155,6 +163,11 @@ struct EventDetailView: View {
     ]
 
     var body: some View {
+        SwiftUI.Group { content }.feedback(self)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let event = store.event(id) {
             List {
                 ErrorBanner()
@@ -189,6 +202,7 @@ struct EventDetailView: View {
                 if !event.place.isEmpty { Text(event.place).foregroundStyle(.secondary) }
                 if let status = event.status { Text(status.label).font(.subheadline.weight(.semibold)).foregroundStyle(Color.brand) }
             }
+            .feedbackCell("Header", data: event.status)
             if let blurb = event.blurb { Text(blurb) }
             if let description = event.description { Text(description) }
             if let payment = event.rsvp?.payment, payment.status == "PENDING" {
@@ -198,11 +212,12 @@ struct EventDetailView: View {
             if event.status != nil || store.requestable.contains(where: { $0.id == event.id }) {
                 HStack {
                     EventAction(event: event)
-                if event.status == .invited {
-                    Button("Pass") { Task { await store.pass(event) } }.buttonStyle(.glass)
-                }
+                    if event.status == .invited {
+                        Button("Pass") { Task { await store.pass(event) } }.buttonStyle(.glass)
+                    }
                     if event.status == .confirmed || event.status == .interested { CancelButton(event: event) }
                 }
+                .feedbackCell("Actions", data: event.status)
             }
         }
     }
@@ -226,6 +241,7 @@ struct EventDetailView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .feedbackCell("Stage", data: stage)
                 }
                 ForEach(event.venues ?? []) { venue in
                     VStack(alignment: .leading, spacing: 2) {
@@ -235,6 +251,7 @@ struct EventDetailView: View {
                             Link(address, destination: url).font(.subheadline)
                         }
                     }
+                    .feedbackCell("Venue", data: venue)
                 }
                 ForEach(points.sorted { $0.dateTime < $1.dateTime }, id: \.self) { point in
                     LabeledContent(point.label, value: event.format(point.dateTime))
@@ -254,11 +271,12 @@ struct EventDetailView: View {
                         MapCircle(center: area.coordinate.location, radius: area.obfuscationRadiusMiles * 1609.34)
                             .foregroundStyle(Color.brand.opacity(0.2))
                             .stroke(Color.brand, lineWidth: 1)
-                        Annotation(stage.title, coordinate: area.coordinate.location) { Circle().fill(Color.brand).frame(width: 6) }
+                        Annotation(stage.title, coordinate: area.coordinate.location) { Circle().fill(Color.brand).frame(width: 6).accessibilityHidden(true) }
                     }
                     ForEach(venues) { venue in Marker(venue.name ?? "Venue", coordinate: venue.coordinate!.location).tint(Color.brand) }
                 }
                 .frame(height: 220)
+                .feedback("Map", data: event.timeline?.stages)
                 .listRowInsets(EdgeInsets())
             }
         }
@@ -293,6 +311,7 @@ struct EventDetailView: View {
                         if original != option.cents { Text("\(money(original)) before discount").strikethrough() }
                         ForEach(option.details ?? [], id: \.self) { Text($0) }
                     }
+                    .feedbackCell("AttendOption", data: option)
                 }
                 if let free = event.chosenSendDateTime, event.cancellationFee() == nil {
                     LabeledContent("Free cancellation until", value: event.format(free))
@@ -325,8 +344,10 @@ struct EventDetailView: View {
                             AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.secondary.opacity(0.2) }
                                 .frame(minWidth: 0, maxWidth: .infinity).frame(height: 100).clipped()
                         }
+                        .accessibilityLabel("Photo")
                     }
                 }
+                .feedback("Photos", data: photos.count)
             }
         }
     }
@@ -360,6 +381,7 @@ struct MemberRow: View {
                 if let type = member.outcome?.personalityType { Text(type).font(.caption).foregroundStyle(.secondary) }
             }
         }
+        .feedbackCell(self)
     }
 }
 

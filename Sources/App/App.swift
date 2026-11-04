@@ -1,8 +1,18 @@
+import Feedback
 import SwiftUI
 
 @main
 struct TwoTwoTwoApp: App {
-    @State private var store = Store()
+    @State private var store: Store
+
+    init() {
+        let store = Store()
+        _store = State(initialValue: store)
+        #if canImport(UIKit)
+        Feedback.enable()
+        Feedback.context("Store") { store }
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -60,6 +70,7 @@ struct Avatar: View {
         .frame(width: size, height: size)
         .background(.quaternary)
         .clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }
 

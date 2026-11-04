@@ -5,5 +5,12 @@ let package = Package(
     name: "222",
     platforms: [.iOS("27.0"), .macOS("27.0")],
     products: [.executable(name: "222", targets: ["App"])],
-    targets: [.executableTarget(name: "App", resources: [.process("Assets.xcassets")])]
+    dependencies: [.package(url: "https://github.com/smirea/feedback-engine", branch: "master")],
+    targets: [
+        .executableTarget(
+            name: "App",
+            dependencies: [.product(name: "Feedback", package: "feedback-engine")],
+            resources: [.process("Assets.xcassets")]
+        ),
+    ]
 )

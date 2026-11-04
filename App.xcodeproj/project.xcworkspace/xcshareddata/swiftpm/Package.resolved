@@ -1,0 +1,15 @@
+{
+  "originHash" : "c9f627c3ec963e03266521bacbe47d4065e5b7c4af6137983a2bf98550c8d5fb",
+  "pins" : [
+    {
+      "identity" : "feedback-engine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/smirea/feedback-engine",
+      "state" : {
+        "branch" : "master",
+        "revision" : "b27b3d1568d844819f7463865c5af2123827a266"
+      }
+    }
+  ],
+  "version" : 3
+}

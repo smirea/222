@@ -1,3 +1,4 @@
+import Feedback
 import SwiftUI
 
 struct PastView: View {
@@ -11,6 +12,7 @@ struct PastView: View {
         .navigationTitle("Past (\(store.past.count))")
         .navigationDestination(for: String.self) { EventDetailView(id: $0) }
         .refreshable { await store.refresh([.past]) }
+        .feedback(self)
     }
 }
 
@@ -32,6 +34,7 @@ struct PeopleView: View {
         .navigationDestination(for: PersonConnection.self) { PersonDetailView(person: $0) }
         .navigationDestination(for: String.self) { EventDetailView(id: $0) }
         .refreshable { await store.refresh([.people]) }
+        .feedback(self)
     }
 }
 
@@ -44,7 +47,7 @@ struct PersonRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(person.otherPerson.member?.displayName ?? "Non-member")
-                    if person.isCloseFriend == true { Image(systemName: "star.fill").foregroundStyle(Color.brand).font(.caption) }
+                    if person.isCloseFriend == true { Image(systemName: "star.fill").foregroundStyle(Color.brand).font(.caption).accessibilityLabel("Close friend") }
                 }
                 Text(summary).font(.caption).foregroundStyle(.secondary)
             }
@@ -55,6 +58,7 @@ struct PersonRow: View {
                     .foregroundStyle(person.wasIrlCompatible == true ? Color.brand : .secondary)
             }
         }
+        .feedback(self)
     }
 
     private var summary: String {
@@ -93,6 +97,7 @@ struct PersonDetailView: View {
             }
         }
         .navigationTitle(person.otherPerson.member?.displayName ?? "Person")
+        .feedback(self)
     }
 }
 
@@ -115,6 +120,7 @@ struct AlgorithmView: View {
         .navigationTitle("Algorithm")
         .searchable(text: $search, prompt: "Search questions")
         .refreshable { await store.refresh([.questionnaires, .me, .subscription]) }
+        .feedback(self)
     }
 
     @ViewBuilder
@@ -237,6 +243,7 @@ struct QuestionRow: View {
             }
         }
         .padding(.vertical, 2)
+        .feedbackCell(self)
     }
 
     private func options(including answers: [String]) -> [String] {
@@ -264,8 +271,10 @@ struct Chips: View {
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .foregroundStyle(isOn ? .white : .primary)
                     .background(isOn ? Color.brand : Color.secondary.opacity(0.15), in: Capsule())
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
             }
         }
+        .feedback("Chips", data: selected)
     }
 }
 

@@ -10,6 +10,8 @@ A personal iOS and macOS client for [222](https://222.place). It shows the same 
 
 The app has no sign-in. The build reads `TWOTWOTWO_API_KEY` from env-manager (`env-manager down` writes `Config/LocalSecrets.xcconfig`) and bakes it into Info.plist; a build without it fails. To rotate the token, edit that file, run `env-manager up`, and rebuild. `get_authed_member` returns the current token as `auth_token`.
 
+On iOS, shake the device to open [Feedback](https://github.com/smirea/feedback-engine) and point at any component; it exports the screenshot, the source location, and the data shown.
+
 ## What differs from the official app
 
 - Joining an invite is one tap on the row. Joining an available event is also one tap: the app requests the invite and confirms it in the same action.
