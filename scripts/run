@@ -1,0 +1,347 @@
+#!/usr/bin/env bun
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+
+const root = resolve(import.meta.dir, "..");
+const runCommand = "./scripts/run";
+const children = new Set<Bun.Subprocess>();
+const { values } = parseArgs({
+    options: {
+        target: { type: "string", short: "t" },
+        targets: { type: "boolean" },
+        watch: { type: "boolean", short: "w", default: true },
+        "no-watch": { type: "boolean" },
+        headless: { type: "boolean" },
+        "pair-watch": { type: "boolean" },
+        delete: { type: "boolean" },
+        team: { type: "string", default: process.env.SWIFT_RUN_DEVELOPMENT_TEAM },
+        help: { type: "boolean", short: "h" },
+    },
+});
+
+type Target = {
+    kind: "device" | "simulator" | "mac";
+    name: string;
+    id: string;
+    destination: string;
+    state: string;
+    runtime?: string;
+};
+
+async function command(args: string[], capture = false, log?: number) {
+    const child = Bun.spawn(args, {
+        cwd: root,
+        stdin: "ignore",
+        stdout: log ?? (capture ? "pipe" : "inherit"),
+        stderr: log ?? (capture ? "pipe" : "inherit"),
+    });
+    children.add(child);
+    try {
+        const [code, output, error] = await Promise.all([
+            child.exited,
+            capture ? new Response(child.stdout).text() : "",
+            capture ? new Response(child.stderr).text() : "",
+        ]);
+        if (code !== 0) throw new Error(`${args[0]} failed (${code}).${error ? `\n${error}` : ""}`);
+        return output;
+    } finally {
+        children.delete(child);
+    }
+}
+
+async function targets(): Promise<Target[]> {
+    const [devices, simulators] = await Promise.all([
+        command(["xcrun", "devicectl", "list", "devices", "--json-output", "-"], true),
+        command(["xcrun", "simctl", "list", "devices", "available", "--json"], true),
+    ]);
+    const result: Target[] = [];
+    for (const device of JSON.parse(devices).result.devices) {
+        const hardware = device.properties?.hardware ?? device.hardwareProperties;
+        const state = device.properties?.state ?? device.deviceProperties;
+        const connection = device.properties?.connection ?? device.connectionProperties;
+        if (hardware.reality !== "physical" || hardware.platform !== "iOS") continue;
+        result.push({
+            kind: "device", name: state.name, id: device.identifier,
+            destination: `platform=iOS,id=${hardware.udid}`,
+            state: connection.state ?? connection.tunnelState,
+        });
+    }
+    for (const [runtime, devices] of Object.entries(JSON.parse(simulators).devices) as [string, any[]][]) {
+        const version = runtime.match(/\.iOS-(\d+.*)$/)?.[1];
+        if (!version || Number(version.split("-")[0]) < 17) continue;
+        for (const device of devices) {
+            result.push({
+                kind: "simulator", name: device.name, id: device.udid,
+                destination: `platform=iOS Simulator,id=${device.udid}`,
+                state: device.state.toLowerCase(), runtime: `iOS ${version.replaceAll("-", ".")}`,
+            });
+        }
+    }
+    result.push({ kind: "mac", name: "My Mac", id: "mac", destination: "platform=macOS", state: "connected" });
+    return result;
+}
+
+function selectTarget(all: Target[]): Target {
+    const requested = values.target ?? (process.env.SWIFT_RUN_DEFAULT_TARGET?.trim() || undefined);
+    const ranked = [...all].sort((a, b) => {
+        const score = (target: Target) => target.kind === "device" ? (target.state === "connected" ? 0 : 4)
+            : target.kind === "simulator" ? (target.state === "booted" ? 1 : 2) : 3;
+        return score(a) - score(b) || (b.runtime ?? "").localeCompare(a.runtime ?? "", undefined, { numeric: true });
+    });
+    if (!requested) return ranked[0];
+    const matches = ranked.filter(target => requested === "simulator" ? target.kind === "simulator"
+        : target.id.toLowerCase() === requested.toLowerCase() || target.name.toLowerCase() === requested.toLowerCase());
+    if (!matches.length) throw new Error(`No matching target: ${requested}. Use ${runCommand} --targets.`);
+    if (matches.length > 1 && requested !== "simulator" && matches.some(target => target.kind === "device")) {
+        throw new Error(`Multiple targets named ${requested}. Use an identifier from ${runCommand} --targets.`);
+    }
+    return matches[0];
+}
+
+function snapshot(project: string) {
+    const hash = createHash("sha256");
+    for (const directory of ["Sources", "Config", "Configuration", project]) {
+        if (!existsSync(join(root, directory))) continue;
+        for (const file of readdirSync(join(root, directory), { recursive: true }).map(String).sort()) {
+            if (file.split("/").includes("xcuserdata") || basename(file) === ".DS_Store") continue;
+            try {
+                const data = readFileSync(join(root, directory, file));
+                hash.update(join(directory, file)).update("\0").update(data).update("\0");
+            } catch (error: any) {
+                if (!["EISDIR", "ENOENT"].includes(error.code)) throw error;
+            }
+        }
+    }
+    return hash.digest("hex");
+}
+
+/** Runs the shared `agent-simulator`, which CI doesn't have, passing on its exit code: `wait` exits 3 to mean rerun. */
+async function agentSimulator(...args: string[]) {
+    const binary = join(homedir(), "bin/agent-simulator");
+    if (!existsSync(binary)) return;
+    const code = await Bun.spawn([binary, ...args], { cwd: root, stdin: "ignore", stdout: "inherit", stderr: "inherit" }).exited;
+    if (code !== 0) process.exit(code);
+}
+
+let booting: Promise<void> | undefined;
+
+async function deploy(target: Target, project: string) {
+    console.log(`Building for ${target.name}${target.runtime ? ` (${target.runtime})` : ""}…`);
+    const build = join(root, "DerivedData", target.kind);
+    mkdirSync(build, { recursive: true });
+    const log = join(build, "build.log");
+    const fd = openSync(log, "w");
+    // A boot still running after a failed build is reused, so a quick save can't pair a second watch.
+    booting ??= target.kind === "simulator" ? boot(target).finally(() => { booting = undefined; }) : undefined;
+    booting?.catch(() => {});
+    const thisBoot = booting;
+    try {
+        await command([
+            "xcodebuild", "-quiet", "-project", project, "-scheme", basename(project, ".xcodeproj"),
+            "-configuration", "Debug", "-destination", target.destination, "-derivedDataPath", build,
+            "-clonedSourcePackagesDirPath", join(root, "DerivedData", "SourcePackages"),
+            ...(target.kind === "device" ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : ["CODE_SIGNING_ALLOWED=NO"]),
+            ...(values.team ? [`DEVELOPMENT_TEAM=${values.team}`] : []), "build",
+        ], false, fd);
+    } catch {
+        console.error(readFileSync(log, "utf8"));
+        throw new Error(`Build failed. See ${log}. For a physical device, check signing in Xcode or use --team.`);
+    } finally { closeSync(fd); }
+    const products = join(build, "Build/Products", { device: "Debug-iphoneos", simulator: "Debug-iphonesimulator", mac: "Debug" }[target.kind]);
+    const apps = readdirSync(products).filter(file => file.endsWith(".app"));
+    if (apps.length !== 1) throw new Error(`Expected one app in ${products}; found ${apps.length}.`);
+    const app = join(products, apps[0]);
+    const plist = join(app, target.kind === "mac" ? "Contents/Info.plist" : "Info.plist");
+    const bundle = (await command(["plutil", "-extract", "CFBundleIdentifier", "raw", plist], true)).trim();
+    if (target.kind === "simulator") {
+        await thisBoot;
+        target.state = "booted";
+        const developer = process.env.DEVELOPER_DIR ?? (await command(["xcode-select", "-p"], true)).trim();
+        const simulator = join(developer, "Applications/Simulator.app");
+        if (!values.headless) await command(existsSync(simulator) ? ["open", "-a", simulator, "--args", "-CurrentDeviceUDID", target.id]
+            : ["open", "-a", join(dirname(developer), "Applications/DeviceHub.app"), `devices://device/open?id=${target.id}`]);
+        const fresh = await command(["xcrun", "simctl", "get_app_container", target.id, bundle], true).then(() => false, () => true);
+        await command(["xcrun", "simctl", "install", target.id, app]);
+        // Agents test the granted path by default and revoke what a test needs denied. Only on a first install: the
+        // grant also resets the app's Health access, which would bring Health's sheet back on every run.
+        if (fresh) await command(["xcrun", "simctl", "privacy", target.id, "grant", "all", bundle], true);
+        const watch = await installWatchApp(target, app);
+        await command(["xcrun", "simctl", "launch", "--terminate-running-process", target.id, bundle]);
+        if (watch) await launchWatchApp(watch);
+    } else if (target.kind === "device") {
+        await command(["xcrun", "devicectl", "device", "install", "app", "--device", target.id, app]);
+        await command(["xcrun", "devicectl", "device", "process", "launch", "--device", target.id, "--terminate-existing", bundle]);
+    } else {
+        await command(["osascript", "-e", `if application ${JSON.stringify(app)} is running then tell application ${JSON.stringify(app)} to quit`]);
+        await command(["open", "-n", app]);
+    }
+    console.log(`App is running on ${target.name}.`);
+}
+
+/** Pairs a watch when asked, then boots the phone and its watch side by side while the app builds, so cold boots stay
+ * off a fresh simulator's first launch. */
+async function boot(target: Target) {
+    if (values["pair-watch"]) await pairWatch(target);
+    const watch = (await pairs()).find(pair => pair.phone.udid === target.id && pair.active)?.watch;
+    await Promise.all([target.id, ...(watch ? [watch.udid] : [])].map(udid => command(["xcrun", "simctl", "bootstatus", udid, "-b"], true)));
+}
+
+type Pair = { id: string; active: boolean; watch: { udid: string; name: string; state: string }; phone: { udid: string } };
+
+async function pairs(): Promise<Pair[]> {
+    const all = JSON.parse(await command(["xcrun", "simctl", "list", "pairs", "--json"], true)).pairs as Record<string, any>;
+    return Object.entries(all).map(([id, pair]) => ({ id, active: !/unactive|inactive/.test(pair.state), watch: pair.watch, phone: pair.phone }));
+}
+
+/** The phone's active pair, activating an inactive one, or a new watch paired with it: the newest model on the newest
+ * watchOS runtime, named after the phone. Pairing takes a tenth of a second and connects once both boot. */
+async function pairWatch(target: Target) {
+    const own = (await pairs()).filter(pair => pair.phone.udid === target.id);
+    if (own.some(pair => pair.active)) return;
+    if (own.length) {
+        await command(["xcrun", "simctl", "pair_activate", own[0].id], true);
+        return;
+    }
+    const runtime = (JSON.parse(await command(["xcrun", "simctl", "list", "runtimes", "--json"], true)).runtimes as any[])
+        .filter(runtime => runtime.platform === "watchOS" && runtime.isAvailable)
+        .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
+    // Each runtime lists its device types newest first.
+    const model = runtime?.supportedDeviceTypes?.[0];
+    if (!model) throw new Error("No watchOS simulator runtime. Add one in Xcode's settings.");
+    const watch = (await command(["xcrun", "simctl", "create", `${target.name} Watch`, model.identifier, runtime.identifier], true)).trim();
+    await command(["xcrun", "simctl", "pair", watch, target.id], true);
+    console.log(`Paired ${model.name} (${runtime.name}) with ${target.name}.`);
+}
+
+/** Shuts down and deletes the simulator and every watch paired with it, which `simctl delete` of the phone leaves
+ * behind. */
+async function deleteSimulator(target: Target) {
+    if (values.target?.toLowerCase() !== target.id.toLowerCase()) {
+        throw new Error("--delete needs -t <udid>: a name or `simulator` could match another agent's simulator.");
+    }
+    if (target.kind !== "simulator") throw new Error("--delete only deletes simulators.");
+    const watches = (await pairs()).filter(pair => pair.phone.udid === target.id).map(pair => pair.watch.udid);
+    for (const udid of [target.id, ...watches]) await command(["xcrun", "simctl", "shutdown", udid], true).catch(() => {});
+    await command(["xcrun", "simctl", "delete", target.id, ...watches], true);
+    console.log(`Deleted ${target.name}${watches.length ? ` and ${watches.length} paired watch${watches.length > 1 ? "es" : ""}` : ""}.`);
+}
+
+/** Installs the embedded watch app on the simulator's paired watch (`xcrun simctl pair`), booting it, so the phone
+ * sees the watch app as installed. Simulators without a pair, and apps without an embedded watch app, skip this. */
+async function installWatchApp(target: Target, app: string): Promise<{ udid: string; name: string; bundle: string; app: string } | undefined> {
+    const watch = (await pairs()).find(pair => pair.phone.udid === target.id && pair.active)?.watch;
+    const watchApps = existsSync(join(app, "Watch")) ? readdirSync(join(app, "Watch")).filter(file => file.endsWith(".app")) : [];
+    if (!watch || watchApps.length !== 1) return;
+    const watchApp = join(app, "Watch", watchApps[0]);
+    console.log(`Installing the watch app on ${watch.name}…`);
+    if (watch.state !== "Booted") await command(["xcrun", "simctl", "boot", watch.udid]);
+    await command(["xcrun", "simctl", "bootstatus", watch.udid, "-b"], true);
+    await command(["xcrun", "simctl", "install", watch.udid, watchApp]);
+    const watchBundle = (await command(["plutil", "-extract", "CFBundleIdentifier", "raw", join(watchApp, "Info.plist")], true)).trim();
+    return { udid: watch.udid, name: watch.name, bundle: watchBundle, app: watchApp };
+}
+
+/** A watch app launched before the watch's WatchConnectivity daemon maps it to its iOS app gets a client with no
+ * communication ID, its `WCSession` never activates, and it hears nothing from the phone until relaunched. After a
+ * fresh `simctl install` the mapping arrives only once the phone app has activated its own session, up to half a
+ * minute later, so this relaunches a watch app that links WatchConnectivity until the daemon registers it properly. */
+async function launchWatchApp(watch: { udid: string; name: string; bundle: string; app: string }) {
+    const ready = `Watch app is running on ${watch.name} (${watch.udid}).`;
+    // Debug builds move the code into `<executable>.debug.dylib`, so both binaries are checked.
+    const executable = join(watch.app, (await command(["plutil", "-extract", "CFBundleExecutable", "raw", join(watch.app, "Info.plist")], true)).trim());
+    const binaries = [executable, `${executable}.debug.dylib`].filter(file => existsSync(file));
+    const connects = (await command(["xcrun", "otool", "-L", ...binaries], true)).includes("WatchConnectivity.framework");
+    if (!connects) {
+        await command(["xcrun", "simctl", "launch", "--terminate-running-process", watch.udid, watch.bundle], true);
+        console.log(ready);
+        return;
+    }
+    const pad = (value: number) => String(value).padStart(2, "0");
+    for (let attempt = 0; attempt < 15; attempt++) {
+        const now = new Date();
+        const since = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        await command(["xcrun", "simctl", "launch", "--terminate-running-process", watch.udid, watch.bundle], true);
+        await Bun.sleep(3000);
+        const log = await command([
+            "xcrun", "simctl", "spawn", watch.udid, "log", "show", "--start", since, "--style", "compact",
+            "--predicate", `process == "wcd" AND eventMessage CONTAINS "Created new client object" AND eventMessage CONTAINS "${watch.bundle}"`,
+        ], true);
+        const client = log.split("\n").filter(line => line.includes("Created new client object")).at(-1);
+        if (client && !client.includes("communicationID: (null)")) {
+            console.log(ready);
+            return;
+        }
+        if (attempt === 0) console.log("Waiting for the watch to link the watch app to the phone app…");
+        await Bun.sleep(2000);
+    }
+    console.error("The watch app never linked to the phone app; relaunch it once the phone app has run.");
+}
+
+async function main() {
+    if (values.help) {
+        console.log(`Usage: ${runCommand} [-t simulator|mac|<target-name-or-id>] [--targets] [--watch|-w] [--no-watch] [--headless] [--pair-watch] [--delete] [--team TEAM_ID]
+
+Defaults to a connected iOS device, then a booted simulator, then an available simulator, then My Mac.
+SWIFT_RUN_DEFAULT_TARGET overrides this choice when -t/--target is omitted. --targets marks the effective default with *.
+Watching is enabled by default. Saves rebuild and restart the app. Ctrl-C stops watching.
+--headless skips opening Simulator.app or Device Hub; the simulator still boots and runs the app. A headless boot
+first waits on agent-simulator wait for room on the Mac, exiting 3 (rerun) after 3 minutes.
+--pair-watch pairs a watch with the simulator first, reusing its pair if it has one, and runs the watch app on it.
+--delete shuts down and deletes the simulator and its paired watches instead of running.`);
+        return;
+    }
+    const all = await targets();
+    const target = selectTarget(all);
+    if (values.targets) {
+        console.table(all.map(({ kind, name, state, runtime, id }) => ({ default: id === target.id ? "*" : "", target: name, kind, state, runtime: runtime ?? "", id })));
+        return;
+    }
+    if (values.delete) return deleteSimulator(target);
+    console.log(`Selected ${target.name} (${target.kind}${target.runtime ? `, ${target.runtime}` : ""}).`);
+    if (target.kind === "simulator") {
+        // A no-op in the main checkout; a linked worktree's claim keeps gc from deleting a simulator it still uses.
+        await agentSimulator("claim", target.id);
+        // Only agents run headless; the owner's own runs never wait.
+        if (values.headless && target.state !== "booted") await agentSimulator("wait", target.id);
+    }
+    const projects = readdirSync(root).filter(file => file.endsWith(".xcodeproj"));
+    if (projects.length !== 1) throw new Error("Expected one Xcode project in the repository root.");
+    const project = projects[0];
+    mkdirSync(join(root, "DerivedData"), { recursive: true });
+    const watch = values.watch && !values["no-watch"];
+    let previous = snapshot(project);
+    const launch = async () => {
+        try { await deploy(target, project); }
+        catch (error: any) {
+            if (!watch) throw error;
+            console.error(`${error.message}\nStill watching; save a change to retry.`);
+        }
+    };
+    await launch();
+    if (!watch) return;
+    console.log("Watching app source and configuration. Ctrl-C stops watching.");
+    while (true) {
+        await Bun.sleep(750);
+        const current = snapshot(project);
+        if (current === previous) continue;
+        await Bun.sleep(750);
+        if (snapshot(project) !== current) continue;
+        previous = current;
+        await launch();
+    }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+        for (const child of children) child.kill(signal);
+        console.log("\nStopped.");
+        process.exit(0);
+    });
+}
+await main().catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+});
