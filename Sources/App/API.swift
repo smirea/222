@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum APIError: LocalizedError {
     case unauthorized
@@ -66,37 +65,6 @@ struct API: Sendable {
         struct ErrorData: Decodable {
             let repromptMessage: String?
             let rsvp: RSVP?
-        }
-    }
-}
-
-enum Keychain {
-    private static var query: [String: Any] { [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.stefan.222",
-        kSecAttrAccount as String: "token",
-    ] }
-
-    static var token: String? {
-        get {
-            var item: CFTypeRef?
-            var lookup = query
-            lookup[kSecReturnData as String] = true
-            guard SecItemCopyMatching(lookup as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
-                return UserDefaults.standard.string(forKey: "token")
-            }
-            return String(decoding: data, as: UTF8.self)
-        }
-        set {
-            SecItemDelete(query as CFDictionary)
-            UserDefaults.standard.removeObject(forKey: "token")
-            guard let newValue else { return }
-            var item = query
-            item[kSecValueData as String] = Data(newValue.utf8)
-            // Unsigned simulator builds have no keychain entitlement, so the add fails there.
-            if SecItemAdd(item as CFDictionary, nil) != errSecSuccess {
-                UserDefaults.standard.set(newValue, forKey: "token")
-            }
         }
     }
 }

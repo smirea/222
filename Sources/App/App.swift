@@ -24,52 +24,14 @@ struct RootView: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if store.token == nil {
-            TokenView()
-        } else {
-            TabView {
-                Tab("Events", systemImage: "calendar") { NavigationStack { EventsView() } }
-                Tab("Past", systemImage: "clock.arrow.circlepath") { NavigationStack { PastView() } }
-                Tab("People", systemImage: "person.2") { NavigationStack { PeopleView() } }
-                Tab("Algorithm", systemImage: "slider.horizontal.3") { NavigationStack { AlgorithmView() } }
-            }
-            .tabViewStyle(.sidebarAdaptable)
-            .task { await store.refresh() }
+        TabView {
+            Tab("Events", systemImage: "calendar") { NavigationStack { EventsView() } }
+            Tab("Past", systemImage: "clock.arrow.circlepath") { NavigationStack { PastView() } }
+            Tab("People", systemImage: "person.2") { NavigationStack { PeopleView() } }
+            Tab("Algorithm", systemImage: "slider.horizontal.3") { NavigationStack { AlgorithmView() } }
         }
-    }
-}
-
-struct TokenView: View {
-    @Environment(Store.self) private var store
-    @State private var token = ""
-    @State private var error: String?
-    @State private var working = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("222").font(.largeTitle.bold())
-            Text("Paste your 222 API token. `222 invites -s` in the scripts repo refreshes it from Chrome, and `get_authed_member` returns it as `auth_token`.")
-                .foregroundStyle(.secondary)
-            SecureField("Token", text: $token)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(submit)
-            if let error { Text(error).foregroundStyle(.red).font(.callout) }
-            Button(action: submit) {
-                Text(working ? "Checking…" : "Sign in").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.glassProminent)
-            .disabled(token.isEmpty || working)
-        }
-        .padding(24)
-        .frame(maxWidth: 420)
-    }
-
-    private func submit() {
-        working = true
-        Task {
-            do { try await store.signIn(token) } catch { self.error = error.localizedDescription }
-            working = false
-        }
+        .tabViewStyle(.sidebarAdaptable)
+        .task { await store.refresh() }
     }
 }
 

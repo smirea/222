@@ -16,7 +16,6 @@ enum Endpoint: String, CaseIterable {
 
 @Observable @MainActor
 final class Store {
-    var token: String?
     var me: AuthedMember?
     var upcoming: [Event] = []
     var current: [Event] = []
@@ -34,33 +33,17 @@ final class Store {
 
     private static let cacheDir = URL.cachesDirectory.appending(path: "222", directoryHint: .isDirectory)
 
+    // Baked into Info.plist at build time from env-manager (Config/LocalSecrets.xcconfig), so the app never asks for credentials.
+    private let api: API? = (Bundle.main.object(forInfoDictionaryKey: "TwoTwoTwoToken") as? String)
+        .flatMap { $0.isEmpty ? nil : API(token: $0) }
+
     init() {
-        token = Keychain.token
-        guard token != nil else { return }
+        if api == nil { error = "This build has no 222 token. Run `env-manager down` in the repo, then rebuild." }
         for endpoint in Endpoint.allCases {
             if let data = try? Data(contentsOf: Self.cacheDir.appending(path: "\(endpoint.rawValue).json")) {
                 try? apply(endpoint, data)
             }
         }
-    }
-
-    private var api: API? { token.map(API.init) }
-
-    func signIn(_ token: String) async throws {
-        let api = API(token: token.trimmingCharacters(in: .whitespacesAndNewlines).replacing(/^Token\s+/, with: ""))
-        let data = try await api.data("GET", Endpoint.me.rawValue)
-        Keychain.token = api.token
-        self.token = api.token
-        try store(.me, data)
-        await refresh()
-    }
-
-    func signOut() {
-        Keychain.token = nil
-        try? FileManager.default.removeItem(at: Self.cacheDir)
-        token = nil
-        me = nil
-        upcoming = []; current = []; past = []; requestable = []; questionnaires = []; people = []; raw = [:]
     }
 
     func refresh(_ endpoints: [Endpoint] = Endpoint.allCases) async {
@@ -77,7 +60,7 @@ final class Store {
             var failures: [String] = []
             for await (endpoint, result) in group {
                 do { try store(endpoint, try result.get()) }
-                catch APIError.unauthorized { signOut(); error = "Token expired, sign in again."; return }
+                catch APIError.unauthorized { error = "222 rejected the token. Update TWOTWOTWO_API_KEY in Config/LocalSecrets.xcconfig, run `env-manager up`, then rebuild."; return }
                 catch { failures.append("\(endpoint.rawValue): \(error.localizedDescription)") }
             }
             self.error = failures.isEmpty ? nil : failures.joined(separator: "\n")

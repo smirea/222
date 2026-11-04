@@ -7,6 +7,7 @@
 
 # Development
 
+- The 222 token comes from env-manager project `222`. Run `env-manager down` before the first build; the Validate Secrets phase fails without it (CI skips the check). Never add sign-in UI.
 - Run `./scripts/run` to build, install, and launch the app, with automatic rebuild and relaunch after saving. Requires Bun and Xcode. Stop with Ctrl-C, or use `--no-watch` for one launch.
 - Use `./scripts/run --targets` to list devices and simulators; `*` marks the effective default. Select with `-t simulator`, `-t mac`, or `-t "iPhone 17"` (also accepts an identifier). It opens Device Hub on Xcode 27 or Simulator.app on earlier Xcode versions.
 - Selection precedence is `-t` / `--target`, then `SWIFT_RUN_DEFAULT_TARGET`, then a connected iOS device, booted simulator, available simulator, or My Mac. Duplicate simulator names prefer a booted instance, then the newest runtime; use an identifier to select exactly. Add simulator runtimes in Xcode's settings.

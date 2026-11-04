@@ -138,7 +138,6 @@ struct AlgorithmView: View {
                     if let end = plan.endDate { LabeledContent(plan.willCancelAtEndDate == true ? "Ends" : "Renews", value: end.formatted(date: .abbreviated, time: .omitted)) }
                     if let link = plan.cancelLink { Link("Manage subscription", destination: link) }
                 }
-                Button("Sign out", role: .destructive) { store.signOut() }
             }
         }
     }

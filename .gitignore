@@ -5,3 +5,4 @@ xcuserdata/
 Config/LocalSecrets.xcconfig
 
 .DS_Store
+.env.local

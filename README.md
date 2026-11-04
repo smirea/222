@@ -8,7 +8,7 @@ A personal iOS and macOS client for [222](https://222.place). It shows the same 
 ./scripts/run -t "Stefan’s iPhone 15 Pro" --no-watch
 ```
 
-Sign in by pasting your 222 token. `222 invites -s` in `~/code/scripts` refreshes it from Chrome, and `get_authed_member` returns it as `auth_token`.
+The app has no sign-in. The build reads `TWOTWOTWO_API_KEY` from env-manager (`env-manager down` writes `Config/LocalSecrets.xcconfig`) and bakes it into Info.plist; a build without it fails. To rotate the token, edit that file, run `env-manager up`, and rebuild. `get_authed_member` returns the current token as `auth_token`.
 
 ## What differs from the official app
 
