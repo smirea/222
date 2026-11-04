@@ -39,9 +39,7 @@ struct EventsView: View {
         .toolbar {
             if store.refreshing { ToolbarItem { ProgressView().controlSize(.small) } }
         }
-        #if os(iOS)
         .listStyle(.insetGrouped)
-        #endif
         .feedback(self)
     }
 
@@ -186,9 +184,7 @@ struct EventDetailView: View {
                 }
             }
             .navigationTitle(event.title)
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
         } else {
             ContentUnavailableView("Event not found", systemImage: "calendar.badge.exclamationmark")
         }

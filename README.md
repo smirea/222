@@ -1,10 +1,9 @@
 # 222
 
-A personal iOS and macOS client for [222](https://222.place). It shows the same data as the official app but with fewer steps: invites, available events, full event details, past events, people you've met, and the questionnaire answers that drive matching.
+A personal iOS client for [222](https://222.place). It shows the same data as the official app but with fewer steps: invites, available events, full event details, past events, people you've met, and the questionnaire answers that drive matching.
 
 ```sh
 ./scripts/run               # build, launch, and relaunch on save
-./scripts/run -t mac        # native Mac app
 ./scripts/run -t "Stefan’s iPhone 15 Pro" --no-watch
 ```
 

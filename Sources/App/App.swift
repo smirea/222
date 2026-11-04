@@ -8,10 +8,8 @@ struct TwoTwoTwoApp: App {
     init() {
         let store = Store()
         _store = State(initialValue: store)
-        #if canImport(UIKit)
         Feedback.enable()
         Feedback.context("Store") { store }
-        #endif
     }
 
     var body: some Scene {
@@ -20,9 +18,6 @@ struct TwoTwoTwoApp: App {
                 .environment(store)
                 .tint(.brand)
         }
-        #if os(macOS)
-        .defaultSize(width: 1100, height: 780)
-        #endif
     }
 }
 
