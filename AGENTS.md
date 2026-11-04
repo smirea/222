@@ -2,7 +2,7 @@
 
 - Language: Swift
 - Package Manager: Swift Package Manager
-- Minimum targets: iOS 17 and macOS 14
+- Minimum targets: iOS 27 and macOS 27 (single user, latest OS only; Liquid Glass APIs need no availability checks)
 - Keep dependencies rare and intentional
 
 # Development
