@@ -4,6 +4,7 @@ struct Outcome: Codable, Hashable {
     let personalityType: String?
     let personalityTypePercentage: Double?
     let favoriteImageUrl: URL?
+    let imageUrls: [URL]?
     let traits: [Trait]?
 }
 
@@ -22,6 +23,13 @@ struct Member: Codable, Hashable, Identifiable {
     let outcome: Outcome?
 
     var displayName: String { simplifiedName ?? name ?? "Unknown" }
+    var photoURL: URL? { profilePhotoUrl ?? outcome?.favoriteImageUrl }
+}
+
+/// Live events list who is coming as `group_attendees`; past events only have `my_groups`.
+struct Attendee: Codable, Hashable {
+    let member: Member
+    let checkedInStatus: String?
 }
 
 struct AuthedMember: Codable {
@@ -135,6 +143,25 @@ struct Venue: Codable, Hashable, Identifiable {
     let address: String?
     let coordinate: Coordinate?
     let type: String?
+
+    var stage: String? {
+        switch type {
+        case nil: nil
+        case "dining": "Dinner"
+        case "post_dining": "After"
+        case let type?: type.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    var googleMaps: (app: URL, web: URL) {
+        let query = [name, address].compactMap { $0 }.joined(separator: ", ")
+        var app = URLComponents(string: "comgooglemaps://")!
+        app.queryItems = [URLQueryItem(name: "q", value: query)]
+        if let coordinate { app.queryItems?.append(URLQueryItem(name: "center", value: "\(coordinate.lat),\(coordinate.lon)")) }
+        var web = URLComponents(string: "https://www.google.com/maps/search/")!
+        web.queryItems = [URLQueryItem(name: "api", value: "1"), URLQueryItem(name: "query", value: query)]
+        return (app.url!, web.url!)
+    }
 }
 
 struct Fees: Codable, Hashable {
@@ -186,6 +213,8 @@ struct Event: Codable, Hashable, Identifiable {
     let groupTerm: String?
     let venues: [Venue]?
     let myGroups: [Group]?
+    let groupAttendees: [Attendee]?
+    let currentVenueId: String?
     let photos: [Photo]?
     let didCompleteFollowUp: Bool?
     let followUpDeadline: Date?
@@ -197,6 +226,7 @@ struct Event: Codable, Hashable, Identifiable {
     var status: RSVPStatus? { rsvp?.status }
     var place: String { [neighborhood, city].compactMap { $0 }.joined(separator: ", ") }
     var cheapestOption: AttendOption? { attendOptions?.min { $0.cents < $1.cents } }
+    var attendees: [Member] { groupAttendees?.map(\.member) ?? (myGroups ?? []).flatMap(\.members) }
 
     /// The guidelines text says cancelling is free until selection notifications go out, then the late fee applies, then the no-show fee.
     func cancellationFee(at now: Date = .now) -> PriceItem? {

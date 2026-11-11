@@ -10,14 +10,17 @@ struct PastView: View {
             ForEach(store.past) { EventRow(event: $0) }
         }
         .navigationTitle("Past (\(store.past.count))")
-        .navigationDestination(for: String.self) { EventDetailView(id: $0) }
         .refreshable { await store.refresh([.past]) }
         .feedback(self)
     }
 }
 
+/// Day-only strings parse as UTC midnight, so they must format in UTC or US time zones show the day before.
 func day(_ isoDay: String) -> String {
-    (try? Date(isoDay, strategy: .iso8601.year().month().day()))?.formatted(.dateTime.month(.abbreviated).day().year()) ?? isoDay
+    guard let date = try? Date(isoDay, strategy: .iso8601.year().month().day()) else { return isoDay }
+    var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
+    style.timeZone = .gmt
+    return date.formatted(style)
 }
 
 struct PeopleView: View {
@@ -27,12 +30,14 @@ struct PeopleView: View {
     var body: some View {
         let people = store.people.filter { search.isEmpty || ($0.otherPerson.member?.displayName ?? "").localizedCaseInsensitiveContains(search) }
         List(people) { person in
-            NavigationLink(value: person) { PersonRow(person: person) }
+            if let member = person.otherPerson.member {
+                NavigationLink(value: member) { PersonRow(person: person) }
+            } else {
+                PersonRow(person: person)
+            }
         }
         .navigationTitle("People (\(store.people.count))")
         .searchable(text: $search)
-        .navigationDestination(for: PersonConnection.self) { PersonDetailView(person: $0) }
-        .navigationDestination(for: String.self) { EventDetailView(id: $0) }
         .refreshable { await store.refresh([.people]) }
         .feedback(self)
     }
@@ -43,7 +48,7 @@ struct PersonRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(url: person.otherPerson.member?.profilePhotoUrl ?? person.otherPerson.member?.outcome?.favoriteImageUrl, size: 40)
+            Avatar(url: person.otherPerson.member?.photoURL, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(person.otherPerson.member?.displayName ?? "Non-member")
@@ -66,38 +71,6 @@ struct PersonRow: View {
          person.lastInteractedDate.map { "last seen \(day($0))" },
          person.eventIdsTogether.map { "\($0.count) event\($0.count == 1 ? "" : "s")" }]
             .compactMap { $0 }.joined(separator: " · ")
-    }
-}
-
-struct PersonDetailView: View {
-    @Environment(Store.self) private var store
-    let person: PersonConnection
-
-    var body: some View {
-        List {
-            Section {
-                HStack(spacing: 16) {
-                    Avatar(url: person.otherPerson.member?.profilePhotoUrl ?? person.otherPerson.member?.outcome?.favoriteImageUrl, size: 72)
-                    VStack(alignment: .leading) {
-                        Text(person.otherPerson.member?.displayName ?? "Non-member").font(.title2.bold())
-                        if let outcome = person.otherPerson.member?.outcome, let type = outcome.personalityType {
-                            Text("\(type) · \(outcome.personalityTypePercentage.map { "\($0.formatted())% of members" } ?? "")").foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if let value = person.compatibility { LabeledContent("Compatibility", value: "\(value.formatted(.number.precision(.fractionLength(1))))%") }
-                if let value = person.suggestibility { LabeledContent("Suggestibility", value: "\(value.formatted(.number.precision(.fractionLength(1))))%") }
-                LabeledContent("Compatible in person", value: person.wasIrlCompatible == true ? "yes" : "no")
-                if let date = person.firstMetIrlDate { LabeledContent("First met", value: day(date)) }
-                if let date = person.lastInteractedDate { LabeledContent("Last seen", value: day(date)) }
-            }
-            let events = (person.eventIdsTogether ?? []).compactMap(store.event)
-            if !events.isEmpty {
-                Section("Events together") { ForEach(events) { EventRow(event: $0) } }
-            }
-        }
-        .navigationTitle(person.otherPerson.member?.displayName ?? "Person")
-        .feedback(self)
     }
 }
 

@@ -7,8 +7,9 @@ struct EventsView: View {
     @State private var showPassed = false
 
     var body: some View {
-        let upcoming = (store.upcoming + store.current).sorted { $0.startDateTime < $1.startDateTime }
-        let joinedIDs = Set(upcoming.map(\.id))
+        let currentIDs = Set(store.current.map(\.id))
+        let upcoming = store.upcoming.filter { !currentIDs.contains($0.id) }.sorted { $0.startDateTime < $1.startDateTime }
+        let joinedIDs = currentIDs.union(upcoming.map(\.id))
         let feedbackDue = store.past.filter { $0.didCompleteFollowUp == false && ($0.followUpDeadline ?? .distantFuture) > .now }
         List {
             ErrorBanner()
@@ -17,7 +18,7 @@ struct EventsView: View {
             section("Needs reply", upcoming.filter { $0.status == .invited })
             section("Going", upcoming.filter { $0.status == .confirmed })
             section("In the pool", upcoming.filter { $0.status == .interested })
-            section("Other", upcoming.filter { ![.invited, .confirmed, .interested, .notInterested].contains($0.status) && !store.current.contains($0) })
+            section("Other", upcoming.filter { ![.invited, .confirmed, .interested, .notInterested].contains($0.status) })
             Section {
                 if let reason = store.requestMeta?.lockedReason { Text(reason).foregroundStyle(.secondary) }
                 ForEach(store.requestable.filter { !joinedIDs.contains($0.id) }) { EventRow(event: $0) }
@@ -34,7 +35,6 @@ struct EventsView: View {
             }
         }
         .navigationTitle("Events")
-        .navigationDestination(for: String.self) { EventDetailView(id: $0) }
         .refreshable { await store.refresh() }
         .toolbar {
             if store.refreshing { ToolbarItem { ProgressView().controlSize(.small) } }
@@ -153,6 +153,7 @@ struct CancelButton: View {
 struct EventDetailView: View {
     @Environment(Store.self) private var store
     let id: String
+    @State private var person: Member?
 
     private static let shareTitles = [
         "plus_one_url": "Invite a plus one",
@@ -169,12 +170,13 @@ struct EventDetailView: View {
         if let event = store.event(id) {
             List {
                 ErrorBanner()
+                venues(event)
+                attendees(event)
                 header(event)
                 itinerary(event)
                 map(event)
                 terms(event)
                 options(event)
-                people(event)
                 photos(event)
                 info(event)
                 if case .object(let raw) = store.raw[id] {
@@ -185,8 +187,32 @@ struct EventDetailView: View {
             }
             .navigationTitle(event.title)
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $person) { PersonView(member: $0) }
         } else {
             ContentUnavailableView("Event not found", systemImage: "calendar.badge.exclamationmark")
+        }
+    }
+
+    @ViewBuilder
+    private func venues(_ event: Event) -> some View {
+        if let venues = event.venues, !venues.isEmpty {
+            Section { ForEach(venues) { VenuePin(venue: $0, isCurrent: $0.id == event.currentVenueId) } }
+        }
+    }
+
+    @ViewBuilder
+    private func attendees(_ event: Event) -> some View {
+        let members = event.attendees.filter { $0.id != store.me?.id }
+        if !members.isEmpty {
+            Section(event.groupAttendees == nil ? "Your \(event.groupTerm ?? "group") (\(members.count))" : "Attending (\(members.count))") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
+                    ForEach(members) { member in
+                        AttendeeCell(member: member, seen: store.eventIDsTogether(member.id, excluding: event.id).count) { person = member }
+                    }
+                }
+                .padding(.vertical, 6)
+                .feedbackCell("Attendees", data: members.count)
+            }
         }
     }
 
@@ -222,7 +248,7 @@ struct EventDetailView: View {
     private func itinerary(_ event: Event) -> some View {
         let stages = event.timeline?.stages ?? []
         let points = (event.timeline?.points ?? []) + (event.rsvp?.additionalTimelineMetadata?.additionalPoints ?? [])
-        if !stages.isEmpty || !points.isEmpty || !(event.venues ?? []).isEmpty {
+        if !stages.isEmpty || !points.isEmpty {
             Section("Itinerary") {
                 ForEach(stages) { stage in
                     VStack(alignment: .leading, spacing: 2) {
@@ -238,16 +264,6 @@ struct EventDetailView: View {
                         }
                     }
                     .feedbackCell("Stage", data: stage)
-                }
-                ForEach(event.venues ?? []) { venue in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(venue.name ?? "Venue").font(.headline)
-                        if let address = venue.address,
-                           let url = URL(string: "https://maps.apple.com/?q=\(address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
-                            Link(address, destination: url).font(.subheadline)
-                        }
-                    }
-                    .feedbackCell("Venue", data: venue)
                 }
                 ForEach(points.sorted { $0.dateTime < $1.dateTime }, id: \.self) { point in
                     LabeledContent(point.label, value: event.format(point.dateTime))
@@ -321,16 +337,6 @@ struct EventDetailView: View {
     }
 
     @ViewBuilder
-    private func people(_ event: Event) -> some View {
-        let members = (event.myGroups ?? []).flatMap(\.members).filter { $0.id != store.me?.id }
-        if !members.isEmpty {
-            Section("Your \(event.groupTerm ?? "group") (\(members.count))") {
-                ForEach(members) { MemberRow(member: $0) }
-            }
-        }
-    }
-
-    @ViewBuilder
     private func photos(_ event: Event) -> some View {
         if let photos = event.photos, !photos.isEmpty {
             Section("Photos (\(photos.count))") {
@@ -363,21 +369,6 @@ struct EventDetailView: View {
                 ShareLink(item: url) { Label(Self.shareTitles[key] ?? key, systemImage: "square.and.arrow.up") }
             }
         }
-    }
-}
-
-struct MemberRow: View {
-    let member: Member
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Avatar(url: member.profilePhotoUrl ?? member.outcome?.favoriteImageUrl)
-            VStack(alignment: .leading) {
-                Text(member.displayName)
-                if let type = member.outcome?.personalityType { Text(type).font(.caption).foregroundStyle(.secondary) }
-            }
-        }
-        .feedbackCell(self)
     }
 }
 

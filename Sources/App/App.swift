@@ -30,13 +30,21 @@ struct RootView: View {
 
     var body: some View {
         TabView {
-            Tab("Events", systemImage: "calendar") { NavigationStack { EventsView() } }
-            Tab("Past", systemImage: "clock.arrow.circlepath") { NavigationStack { PastView() } }
-            Tab("People", systemImage: "person.2") { NavigationStack { PeopleView() } }
+            Tab("Events", systemImage: "calendar") { NavigationStack { EventsView().routes() } }
+            Tab("Past", systemImage: "clock.arrow.circlepath") { NavigationStack { PastView().routes() } }
+            Tab("People", systemImage: "person.2") { NavigationStack { PeopleView().routes() } }
             Tab("Algorithm", systemImage: "slider.horizontal.3") { NavigationStack { AlgorithmView() } }
         }
         .tabViewStyle(.sidebarAdaptable)
         .task { await store.refresh() }
+    }
+}
+
+extension View {
+    /// Every stack resolves the same values, so an event or a person opens the same screen wherever it is tapped.
+    func routes() -> some View {
+        navigationDestination(for: String.self) { EventDetailView(id: $0) }
+            .navigationDestination(for: Member.self) { PersonView(member: $0) }
     }
 }
 

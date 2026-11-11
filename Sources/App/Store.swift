@@ -113,7 +113,26 @@ final class Store {
     }
 
     func event(_ id: String) -> Event? {
-        upcoming.first { $0.id == id } ?? current.first { $0.id == id } ?? past.first { $0.id == id } ?? requestable.first { $0.id == id }
+        current.first { $0.id == id } ?? upcoming.first { $0.id == id } ?? past.first { $0.id == id } ?? requestable.first { $0.id == id }
+    }
+
+    func connection(_ memberID: String) -> PersonConnection? {
+        people.first { $0.otherPerson.member?.id == memberID }
+    }
+
+    /// Past groups catch people the connections list never recorded; connections also list events that none of the event lists return.
+    func eventIDsTogether(_ memberID: String, excluding eventID: String? = nil) -> Set<String> {
+        var ids = Set(connection(memberID)?.eventIdsTogether ?? [])
+        for event in past where event.attendees.contains(where: { $0.id == memberID }) { ids.insert(event.id) }
+        if let eventID { ids.remove(eventID) }
+        return ids
+    }
+
+    func liveAttendance(_ memberID: String) -> (event: Event, status: String?)? {
+        for event in current {
+            if let attendee = event.groupAttendees?.first(where: { $0.member.id == memberID }) { return (event, attendee.checkedInStatus) }
+        }
+        return nil
     }
 
     private func updateRSVP(_ eventID: String, _ rsvp: RSVP) {
@@ -131,7 +150,7 @@ final class Store {
         } catch {
             self.error = error.localizedDescription
         }
-        await refresh([.upcoming, .requestable])
+        await refresh([.upcoming, .current, .requestable])
     }
 
     func join(_ event: Event, option: AttendOption) async {
@@ -184,7 +203,7 @@ final class Store {
                 break
             }
         }
-        await refresh([.upcoming, .requestable])
+        await refresh([.upcoming, .current, .requestable])
         return nil
     }
 
