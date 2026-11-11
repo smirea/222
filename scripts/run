@@ -4,6 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync }
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { refreshOwnPackages } from "./own-packages.ts";
 
 const root = resolve(import.meta.dir, "..");
 const runCommand = "./scripts/run";
@@ -143,7 +144,7 @@ async function deploy(target: Target, project: string) {
             "xcodebuild", "-quiet", "-project", project, "-scheme", basename(project, ".xcodeproj"),
             "-configuration", "Debug", "-destination", target.destination, "-derivedDataPath", build,
             "-clonedSourcePackagesDirPath", join(root, "DerivedData", "SourcePackages"),
-            ...(target.kind === "device" ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : ["CODE_SIGNING_ALLOWED=NO"]),
+            ...(target.kind === "device" ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : ["CODE_SIGN_IDENTITY=-"]),
             ...(values.team ? [`DEVELOPMENT_TEAM=${values.team}`] : []), "build",
         ], false, fd);
     } catch {
@@ -311,6 +312,7 @@ first waits on agent-simulator wait for room on the Mac, exiting 3 (rerun) after
     if (projects.length !== 1) throw new Error("Expected one Xcode project in the repository root.");
     const project = projects[0];
     mkdirSync(join(root, "DerivedData"), { recursive: true });
+    await refreshOwnPackages(join(root, "DerivedData", "SourcePackages"));
     const watch = values.watch && !values["no-watch"];
     let previous = snapshot(project);
     const launch = async () => {

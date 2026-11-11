@@ -6,3 +6,5 @@ Config/LocalSecrets.xcconfig
 
 .DS_Store
 .env.local
+
+App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
