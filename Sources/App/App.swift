@@ -30,22 +30,43 @@ struct RootView: View {
 
     var body: some View {
         TabView {
-            Tab("Events", systemImage: "calendar") { NavigationStack { EventsView().routes() } }
-            Tab("Past", systemImage: "clock.arrow.circlepath") { NavigationStack { PastView().routes() } }
-            Tab("People", systemImage: "person.2") { NavigationStack { PeopleView().routes() } }
-            Tab("Algorithm", systemImage: "slider.horizontal.3") { NavigationStack { AlgorithmView() } }
+            Tab("Events", systemImage: "calendar") { RoutedStack { EventsView() } }
+            Tab("Past", systemImage: "clock.arrow.circlepath") { RoutedStack { PastView() } }
+            Tab("People", systemImage: "person.2") { RoutedStack { PeopleView() } }
+            Tab("Algorithm", systemImage: "slider.horizontal.3") { RoutedStack { AlgorithmView() } }
         }
         .tabViewStyle(.sidebarAdaptable)
         .task { await store.refresh() }
     }
 }
 
-extension View {
-    /// Every stack resolves the same values, so an event or a person opens the same screen wherever it is tapped.
-    func routes() -> some View {
-        navigationDestination(for: String.self) { EventDetailView(id: $0) }
-            .navigationDestination(for: Member.self) { PersonView(member: $0) }
+/// Every tab resolves the same values, so an event or a person opens the same screen wherever it is tapped.
+struct RoutedStack<Root: View>: View {
+    @State private var path = NavigationPath()
+    @ViewBuilder let root: () -> Root
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            root()
+                .navigationDestination(for: String.self) { EventDetailView(id: $0) }
+                .navigationDestination(for: Member.self) { PersonView(member: $0) }
+        }
+        .environment(\.router, Router(path: $path))
     }
+}
+
+/// Pushes from views that can't be NavigationLinks, such as several tap targets sharing one List row.
+struct Router {
+    fileprivate var path: Binding<NavigationPath>?
+
+    func push<Value: Hashable>(_ value: Value) {
+        guard let path else { return assertionFailure("Router used outside a RoutedStack") }
+        path.wrappedValue.append(value)
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var router = Router()
 }
 
 extension Event {

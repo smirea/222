@@ -10,13 +10,13 @@ struct EventsView: View {
         let currentIDs = Set(store.current.map(\.id))
         let upcoming = store.upcoming.filter { !currentIDs.contains($0.id) }.sorted { $0.startDateTime < $1.startDateTime }
         let joinedIDs = currentIDs.union(upcoming.map(\.id))
+        let going = (store.current + upcoming.filter { $0.status == .confirmed }).sorted { $0.startDateTime < $1.startDateTime }
         let feedbackDue = store.past.filter { $0.didCompleteFollowUp == false && ($0.followUpDeadline ?? .distantFuture) > .now }
         List {
             ErrorBanner()
+            ForEach(going) { GoingCard(event: $0, isFirst: $0.id == going.first?.id) }
             section("Feedback due", feedbackDue)
-            section("Happening now", store.current)
             section("Needs reply", upcoming.filter { $0.status == .invited })
-            section("Going", upcoming.filter { $0.status == .confirmed })
             section("In the pool", upcoming.filter { $0.status == .interested })
             section("Other", upcoming.filter { ![.invited, .confirmed, .interested, .notInterested].contains($0.status) })
             Section {
@@ -48,6 +48,29 @@ struct EventsView: View {
         if !events.isEmpty {
             Section(title) { ForEach(events) { EventRow(event: $0) } }
         }
+    }
+}
+
+/// Once the group and venues are out, who and where matter more than the title, so they lead the card.
+struct GoingCard: View {
+    @Environment(Store.self) private var store
+    let event: Event
+    let isFirst: Bool
+
+    var body: some View {
+        if isFirst {
+            Section { content } header: { Text("Going") }
+        } else {
+            Section { content }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let members = store.companions(event)
+        if !members.isEmpty { AttendeeGrid(event: event, members: members) }
+        ForEach(event.venues ?? []) { VenuePin(venue: $0, isCurrent: $0.id == event.currentVenueId) }
+        EventRow(event: event)
     }
 }
 
@@ -153,7 +176,6 @@ struct CancelButton: View {
 struct EventDetailView: View {
     @Environment(Store.self) private var store
     let id: String
-    @State private var person: Member?
 
     private static let shareTitles = [
         "plus_one_url": "Invite a plus one",
@@ -187,7 +209,6 @@ struct EventDetailView: View {
             }
             .navigationTitle(event.title)
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $person) { PersonView(member: $0) }
         } else {
             ContentUnavailableView("Event not found", systemImage: "calendar.badge.exclamationmark")
         }
@@ -202,16 +223,10 @@ struct EventDetailView: View {
 
     @ViewBuilder
     private func attendees(_ event: Event) -> some View {
-        let members = event.attendees.filter { $0.id != store.me?.id }
+        let members = store.companions(event)
         if !members.isEmpty {
             Section(event.groupAttendees == nil ? "Your \(event.groupTerm ?? "group") (\(members.count))" : "Attending (\(members.count))") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
-                    ForEach(members) { member in
-                        AttendeeCell(member: member, seen: store.eventIDsTogether(member.id, excluding: event.id).count) { person = member }
-                    }
-                }
-                .padding(.vertical, 6)
-                .feedbackCell("Attendees", data: members.count)
+                AttendeeGrid(event: event, members: members)
             }
         }
     }

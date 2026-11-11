@@ -84,14 +84,28 @@ struct PersonView: View {
     }
 }
 
-/// A button, not a NavigationLink: a List row holding several links fires the last one whichever cell is tapped.
-struct AttendeeCell: View {
-    let member: Member
-    let seen: Int
-    let open: () -> Void
+struct AttendeeGrid: View {
+    @Environment(Store.self) private var store
+    let event: Event
+    let members: [Member]
 
     var body: some View {
-        Button(action: open) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 16) {
+            ForEach(members) { AttendeeCell(member: $0, seen: store.eventIDsTogether($0.id, excluding: event.id).count) }
+        }
+        .padding(.vertical, 6)
+        .feedbackCell("Attendees", data: members.count)
+    }
+}
+
+/// A button, not a NavigationLink: a List row holding several links fires the last one whichever cell is tapped.
+struct AttendeeCell: View {
+    @Environment(\.router) private var router
+    let member: Member
+    let seen: Int
+
+    var body: some View {
+        Button { router.push(member) } label: {
             VStack(spacing: 6) {
                 Color.secondary.opacity(0.15)
                     .aspectRatio(1, contentMode: .fit)

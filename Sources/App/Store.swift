@@ -116,6 +116,10 @@ final class Store {
         current.first { $0.id == id } ?? upcoming.first { $0.id == id } ?? past.first { $0.id == id } ?? requestable.first { $0.id == id }
     }
 
+    func companions(_ event: Event) -> [Member] {
+        event.attendees.filter { $0.id != me?.id }
+    }
+
     func connection(_ memberID: String) -> PersonConnection? {
         people.first { $0.otherPerson.member?.id == memberID }
     }
