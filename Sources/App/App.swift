@@ -9,6 +9,7 @@ struct TwoTwoTwoApp: App {
         let store = Store()
         _store = State(initialValue: store)
         Feedback.enable()
+        Feedback.pinned = ["ProcrastiMate"]
         Feedback.context("Store") { store }
     }
 
