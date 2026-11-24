@@ -22,17 +22,17 @@ On iOS, shake the device to open [Feedback](https://github.com/smirea/feedback-e
 
 The app talks to `https://ios.api.222.place` (FastAPI) with `Authorization: Token <token>`.
 
-| Endpoint | Use |
-| --- | --- |
-| `GET get_members_upcoming_events`, `get_members_current_events`, `get_members_past_events` | Events with RSVP, timeline, fees, groups, photos |
-| `GET get_request_new_event_metadata` | Requestable events |
-| `GET get_all_questionnaires` | Onboarding and pre-experience questions with answers and branch logic |
-| `GET person_connections` | People you've met, with compatibility |
-| `GET get_subscription?include_payments=false` | Subscription plan |
-| `POST request_new_event` `{requested_event_id, origin}` | Request an invite |
-| `POST update_attend_option?event_id=` `{attend_option_id}` | Join (free options confirm immediately) |
-| `POST reject_event_invite?event_id=` | Pass, or cancel when `decline_type` is `REJECT_EVENT_INVITE` |
-| `POST bail?event_id=` | Cancel when `decline_type` is `BAIL`; a 400 `SHOULD_REPROMPT` means the terms changed |
-| `POST submit_answers` `{answers: {question_id: value}}` | Save preference answers |
+| Endpoint                                                                                   | Use                                                                                   |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `GET get_members_upcoming_events`, `get_members_current_events`, `get_members_past_events` | Events with RSVP, timeline, fees, groups, photos                                      |
+| `GET get_request_new_event_metadata`                                                       | Requestable events                                                                    |
+| `GET get_all_questionnaires`                                                               | Onboarding and pre-experience questions with answers and branch logic                 |
+| `GET person_connections`                                                                   | People you've met, with compatibility                                                 |
+| `GET get_subscription?include_payments=false`                                              | Subscription plan                                                                     |
+| `POST request_new_event` `{requested_event_id, origin}`                                    | Request an invite                                                                     |
+| `POST update_attend_option?event_id=` `{attend_option_id}`                                 | Join (free options confirm immediately)                                               |
+| `POST reject_event_invite?event_id=`                                                       | Pass, or cancel when `decline_type` is `REJECT_EVENT_INVITE`                          |
+| `POST bail?event_id=`                                                                      | Cancel when `decline_type` is `BAIL`; a 400 `SHOULD_REPROMPT` means the terms changed |
+| `POST submit_answers` `{answers: {question_id: value}}`                                    | Save preference answers                                                               |
 
 Not supported yet: paid options (the Stripe PaymentSheet stays in the official app), plus-ones, and submitting post-event feedback (`submit_follow_up` takes a free-form body whose shape is unknown until a follow-up is pending).

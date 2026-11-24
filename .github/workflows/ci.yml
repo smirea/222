@@ -51,8 +51,8 @@ jobs:
         task: [checks, tests, build]
     env:
       SWIFT_DIRECTORY: .
-      CI: 'true'
-      LEFTHOOK: '0'
+      CI: "true"
+      LEFTHOOK: "0"
     steps:
       - name: Verify change detection
         env:
